@@ -8,56 +8,14 @@ from vertexai.generative_models import GenerativeModel, GenerationConfig, Conten
 
 
 
-# ── System prompts ──────────────────────────────────────────────────────────
-
-CONVERSATION_SYSTEM_PROMPT = """You are a friendly and encouraging English fluency coach.
-Your role is to have a natural conversation with the student to help them practice speaking English.
-
-Rules:
-- Keep your replies to 2-3 sentences maximum.
-- Do NOT correct grammar mistakes mid-conversation — just keep the conversation flowing.
-- Be warm, encouraging, and supportive.
-- Respond naturally to what the student says and ask follow-up questions to keep them talking.
-- Adapt your vocabulary and sentence complexity to the student's level: {level}.
-"""
-
-INTERVIEW_SYSTEM_PROMPT = """You are a friendly English fluency coach conducting a mock interview.
-Your role is to help the student practice answering interview questions in English.
-
-Rules:
-- Keep your replies to 2-3 sentences maximum.
-- Ask one clear interview question at a time, then wait for the student's answer.
-- After they answer, give a brief encouraging acknowledgment and move to the next question.
-- Do NOT correct grammar mistakes mid-interview — save that for the analysis.
-- Adapt the difficulty of your questions to the student's level: {level}.
-- Cover a variety of common interview topics (self-introduction, strengths, experiences, goals).
-"""
-
-ANALYSIS_SYSTEM_PROMPT = """You are an expert English language assessor. Analyze the following conversation transcript between a student and an AI English coach.
-
-The student's declared level is: {level}
-The session mode was: {mode}
-
-Provide a detailed analysis in **valid JSON** format with exactly this structure:
-{{
-  "fluency_score": <integer from 1 to 10>,
-  "grammar_mistakes": [
-    {{"wrong": "what student said", "correct": "corrected version", "explanation": "brief explanation"}}
-  ],
-  "vocabulary_level": "beginner" | "intermediate" | "advanced",
-  "strengths": ["strength 1", "strength 2"],
-  "suggestions": ["suggestion 1", "suggestion 2"],
-  "improved_sentences": [
-    {{"original": "student's sentence", "improved": "improved version"}}
-  ]
-}}
-
-Be specific and constructive. If the student made no mistakes, still provide encouragement and suggestions for further growth.
-Return ONLY the JSON object — no markdown fences, no extra text.
-"""
+from services.prompts import (
+    CONVERSATION_SYSTEM_PROMPT,
+    INTERVIEW_SYSTEM_PROMPT,
+    ANALYSIS_SYSTEM_PROMPT,
+)
 
 
-def get_reply(message: str, history: list, level: str, mode: str) -> str:
+def get_reply(message: str, history: list, level: str, mode: str, time_remaining_seconds: int = 420) -> str:
     """
     Get a conversational reply from the AI coach.
 
@@ -67,15 +25,26 @@ def get_reply(message: str, history: list, level: str, mode: str) -> str:
                  [{"role": "user"/"model", "parts": ["..."]}].
         level: Student's English level (beginner/intermediate/advanced).
         mode: Session mode ('conversation' or 'interview').
+        time_remaining_seconds: Time left in the session.
 
     Returns:
         The AI coach's reply as a plain string.
     """
     vertexai.init()
 
+    mins = max(0, time_remaining_seconds // 60)
+    secs = max(0, time_remaining_seconds % 60)
+    
+    if time_remaining_seconds <= 0:
+        time_status = "WARNING: Time is up! 0 seconds remaining. Immediately say goodbye and gracefully end the session. DO NOT ask any further questions."
+    elif time_remaining_seconds <= 60:
+        time_status = f"WARNING: Only {mins}m {secs}s remaining in this session. Start wrapping up the conversation and preparing to conclude."
+    else:
+        time_status = f"Time Remaining: {mins}m {secs}s. Pace the conversation normally."
+
     system_prompt = (
         INTERVIEW_SYSTEM_PROMPT if mode == "interview" else CONVERSATION_SYSTEM_PROMPT
-    ).format(level=level)
+    ).format(level=level, time_status=time_status)
 
     model = GenerativeModel(
         "gemini-2.5-flash-lite",

@@ -93,14 +93,83 @@
         #status { font-size: 0.9rem; color: #94a3b8; margin-bottom: 1rem; }
         .analysis-box {
             margin-top: 2rem;
-            padding: 1rem;
-            background: #0f172a;
-            border: 1px solid #475569;
-            border-radius: 8px;
+            width: 100%;
             display: none;
-            white-space: pre-wrap;
-            font-family: monospace;
-            font-size: 0.9rem;
+        }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .report-section {
+            animation: slideUp 0.6s ease-out forwards;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            opacity: 0;
+        }
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .score-badge {
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            font-size: 2.2rem;
+            font-weight: bold;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 50%;
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.4);
+        }
+        .vocab-badge {
+            background: #0f172a;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #94a3b8;
+            border: 1px solid #334155;
+        }
+        .list-group { padding-left: 1.2rem; margin-bottom: 1.5rem; }
+        .list-group li { padding-bottom: 0.6rem; color: #cbd5e1; }
+        .mistake-card {
+            background: #0f172a;
+            border-left: 4px solid var(--danger);
+            padding: 1rem 1.2rem;
+            margin-bottom: 1rem;
+            border-radius: 0 8px 8px 0;
+        }
+        .wrong-text { color: #fca5a5; text-decoration: line-through; margin-bottom: 0.3rem; display: block; }
+        .correct-text { color: #86efac; font-weight: bold; margin-bottom: 0.5rem; display: block; }
+        .explanation { color: #94a3b8; font-size: 0.9rem; font-style: italic; }
+        .improved-card {
+            background: #0f172a;
+            border-left: 4px solid var(--primary-color);
+            padding: 1rem 1.2rem;
+            margin-bottom: 1rem;
+            border-radius: 0 8px 8px 0;
+        }
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
         }
     </style>
 </head>
@@ -110,21 +179,31 @@
     <h1>SpeakEasy Coach</h1>
     
     <div class="controls">
+        <label for="apiKey" class="sr-only">App Secret API Key</label>
         <input type="password" id="apiKey" placeholder="APP_SECRET API Key" value="your_static_secret_here">
-        <select id="level" aria-label="English Level">
+        
+        <label for="level" class="sr-only">English Level</label>
+        <select id="level">
             <option value="beginner">Beginner</option>
             <option value="intermediate" selected>Intermediate</option>
             <option value="advanced">Advanced</option>
         </select>
-        <select id="mode" aria-label="Practice Mode">
+        
+        <label for="mode" class="sr-only">Practice Mode</label>
+        <select id="mode">
             <option value="conversation" selected>Conversation</option>
             <option value="interview">Interview</option>
         </select>
-        <button id="btnRecord" class="btn-record">🎤 Start Recording</button>
+        <button id="btnRecord" class="btn-record">🎤 Start Conversation</button>
+        <button id="btnEndSession" class="btn-record" style="background:#ef4444; display:none;">🛑 End Session</button>
+
         <button id="btnAnalyze">📊 Analyze Session</button>
     </div>
 
-    <div id="status">Ready. Select your options and hit 'Start Recording' to talk.</div>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <div id="status">Ready. Select your options and hit 'Start' to talk.</div>
+        <div id="timerDisplay" style="font-family: monospace; font-size: 24px; font-weight: bold; color: #f59e0b; display: none;">⏱️ 07:00</div>
+    </div>
 
     <div class="chat-box" id="chatBox"></div>
     
@@ -138,11 +217,29 @@
     let conversationHistory = []; // format: { role: 'user' | 'model', parts: ['text'] }
     let transcriptHistory = []; // format: { role: 'user' | 'assistant', content: 'text' }
 
+    let globalStream = null;
+    let audioContext = null;
+    let analyser = null;
+    let dataArray = null;
+    let vadFrame = null;
+    let silenceStart = null;
+    let hasSpoken = false;
+    let isConversationActive = false;
+
+    // Timer logic
+    const MAX_SECONDS = 420; // 7 minutes
+    let timeRemaining = MAX_SECONDS;
+    let timerInterval = null;
+
     const btnRecord = document.getElementById('btnRecord');
     const btnAnalyze = document.getElementById('btnAnalyze');
     const chatBox = document.getElementById('chatBox');
     const statusEl = document.getElementById('status');
     const analysisBox = document.getElementById('analysisBox');
+    const btnEndSession = document.getElementById('btnEndSession');
+    const timerDisplay = document.getElementById('timerDisplay');
+
+    btnRecord.textContent = '🎤 Start Conversation';
 
     function addMessage(role, text) {
         const div = document.createElement('div');
@@ -152,33 +249,191 @@
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    async function toggleRecording() {
-        if (isRecording) {
-            mediaRecorder.stop();
+    function renderReport(report) {
+        analysisBox.style.display = 'block';
+        analysisBox.innerHTML = `
+            <div class="report-section" style="animation-delay: 0s">
+                <div class="report-header">
+                    <div>
+                        <h2 style="margin:0 0 0.8rem 0; color: #f8fafc;">Session Analysis</h2>
+                        <span class="vocab-badge">Vocab: ${report.vocabulary_level || 'Unknown'}</span>
+                    </div>
+                    <div class="score-badge">${report.fluency_score || 0}<span style="font-size:1rem; opacity:0.8">/10</span></div>
+                </div>
+
+                <h3 style="color:#86efac; margin-top:0;">🌟 Strengths</h3>
+                <ul class="list-group">
+                    ${(report.strengths || []).map(s => `<li>${s}</li>`).join('')}
+                </ul>
+
+                <h3 style="color:#fcd34d">💡 Areas for Improvement</h3>
+                <ul class="list-group">
+                    ${(report.suggestions || []).map(s => `<li>${s}</li>`).join('')}
+                </ul>
+            </div>
+
+            <div class="report-section" style="animation-delay: 0.15s">
+                <h3 style="color:#fca5a5; margin-top:0;">🔍 Grammar Check</h3>
+                ${!report.grammar_mistakes || report.grammar_mistakes.length === 0 ? '<p style="color:#94a3b8">No major grammar mistakes detected! Great job!</p>' : 
+                  report.grammar_mistakes.map(m => `
+                    <div class="mistake-card">
+                        <span class="wrong-text">❌ ${m.wrong}</span>
+                        <span class="correct-text">✅ ${m.correct}</span>
+                        <span class="explanation">${m.explanation}</span>
+                    </div>
+                `).join('')}
+            </div>
+
+            <div class="report-section" style="animation-delay: 0.3s">
+                <h3 style="color:#93c5fd; margin-top:0;">✨ Better Ways to Say It</h3>
+                ${!report.improved_sentences || report.improved_sentences.length === 0 ? '<p style="color:#94a3b8">Your phrasing was highly natural.</p>' : 
+                  report.improved_sentences.map(i => `
+                    <div class="improved-card">
+                        <span class="wrong-text" style="text-decoration:none; color:#94a3b8;">Original: "${i.original}"</span>
+                        <span class="correct-text" style="color:#60a5fa;">👉 "${i.improved}"</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    function monitorSilence() {
+        if (!isRecording || !isConversationActive) return;
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < analyser.frequencyBinCount; i++) { sum += dataArray[i]; }
+        let volume = sum / analyser.frequencyBinCount;
+
+        if (volume > 15) { // User is actively talking
+            hasSpoken = true;
+            silenceStart = null;
+            statusEl.textContent = '🎙️ Listening... (Speaking)';
+        } else { // Volume dropped
+            if (hasSpoken) {
+                if (silenceStart === null) {
+                    silenceStart = Date.now();
+                } else if (Date.now() - silenceStart > 1800) { // 1.8 seconds of silence to trigger end of turn
+                    isRecording = false;
+                    mediaRecorder.stop();
+                    return; // exit loop
+                }
+            }
+            if (hasSpoken) {
+                statusEl.textContent = '🎙️ Listening... (Waiting...)';
+            } else {
+                statusEl.textContent = '🎙️ Listening... (Awaiting speech)';
+            }
+        }
+        vadFrame = requestAnimationFrame(monitorSilence);
+    }
+
+    function startRecordingTurn() {
+        if (!isConversationActive) return;
+
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(globalStream, { mimeType: 'audio/webm' });
+
+        mediaRecorder.ondataavailable = e => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            await processAudio(audioBlob);
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+
+        hasSpoken = false;
+        silenceStart = null;
+        monitorSilence();
+    }
+
+    async function triggerAIGreeting() {
+        if (!isConversationActive) return;
+        statusEl.textContent = '🧠 AI is preparing to speak...';
+        
+        try {
+            const apiKey = document.getElementById('apiKey').value;
+            const level = document.getElementById('level').value;
+            const mode = document.getElementById('mode').value;
+
+            // Generate an invisible initialization message from the system
+            const initMessage = "[SYSTEM: The student has just connected to the voice session. Greet them warmly and ask what they would like to focus on today. Keep it very brief.]";
+
+            const chatRes = await fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                },
+                body: JSON.stringify({
+                    message: initMessage,
+                    history: [],
+                    level: level,
+                    mode: mode,
+                    time_remaining_seconds: timeRemaining
+                })
+            });
+
+            if (!chatRes.ok) throw new Error('Greeting failed: ' + await chatRes.text());
+            const { reply, audio_base64 } = await chatRes.json();
+
+            addMessage('ai', reply);
+            conversationHistory.push({ role: 'user', parts: [initMessage] });
+            conversationHistory.push({ role: 'model', parts: [reply] });
+            transcriptHistory.push({ role: 'assistant', content: reply });
+
+            // Play the audio
+            const audioSrc = `data:audio/mp3;base64,${audio_base64}`;
+            const audio = new Audio(audioSrc);
+            
+            statusEl.textContent = '🔊 AI is speaking...';
+            await audio.play();
+            
+            audio.onended = () => {
+                if (isConversationActive) {
+                    statusEl.textContent = '🔄 Your turn to speak...';
+                    startRecordingTurn();
+                } else {
+                    statusEl.textContent = 'Conversation mathematically ended.';
+                }
+            };
+        } catch (err) {
+            statusEl.textContent = 'Error starting conversation: ' + (err.message || err);
+            console.error(err);
+        }
+    }
+
+    async function toggleConversation() {
+        if (isConversationActive) {
+            // Stop it
+            isConversationActive = false;
             isRecording = false;
-            btnRecord.textContent = '🎤 Start Recording';
+            btnRecord.textContent = '🤖 Start Conversation';
             btnRecord.classList.remove('recording');
+            statusEl.textContent = 'Conversation manually ended.';
+            if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+            if (vadFrame) cancelAnimationFrame(vadFrame);
         } else {
+            // Start it
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                // We use webm format because STT requires WEBM_OPUS
-                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-                audioChunks = [];
-
-                mediaRecorder.ondataavailable = e => {
-                    if (e.data.size > 0) audioChunks.push(e.data);
-                };
-
-                mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    await processAudio(audioBlob);
-                };
-
-                mediaRecorder.start();
-                isRecording = true;
-                btnRecord.textContent = '⏹ Stop Recording';
+                if (!globalStream) {
+                    globalStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 512;
+                    dataArray = new Uint8Array(analyser.frequencyBinCount);
+                    const source = audioContext.createMediaStreamSource(globalStream);
+                    source.connect(analyser);
+                }
+                
+                isConversationActive = true;
+                btnRecord.textContent = '⏹ End Conversation';
                 btnRecord.classList.add('recording');
-                statusEl.textContent = 'Listening...';
+                triggerAIGreeting();
+
             } catch (err) {
                 alert('Microphone access denied or not available.');
                 console.error(err);
@@ -187,8 +442,8 @@
     }
 
     async function processAudio(blob) {
-        statusEl.textContent = 'Transcribing audio...';
-        btnRecord.disabled = true;
+        if (!isConversationActive) return;
+        statusEl.textContent = '⚙️ Transcribing audio...';
 
         try {
             // 1. Transcribe Audio
@@ -201,8 +456,8 @@
             const { text } = await sttRes.json();
             
             if (!text) {
-                statusEl.textContent = 'No speech detected. Try again.';
-                btnRecord.disabled = false;
+                statusEl.textContent = '⚠️ No speech detected. Listening again...';
+                if (isConversationActive) setTimeout(startRecordingTurn, 500);
                 return;
             }
 
@@ -214,7 +469,7 @@
             transcriptHistory.push({ role: 'user', content: text });
 
             // 2. Chat with AI
-            statusEl.textContent = 'Getting AI response...';
+            statusEl.textContent = '🧠 AI is thinking...';
             
             const apiKey = document.getElementById('apiKey').value;
             const level = document.getElementById('level').value;
@@ -230,7 +485,8 @@
                     message: text,
                     history: historyToSend,
                     level: level,
-                    mode: mode
+                    mode: mode,
+                    time_remaining_seconds: timeRemaining
                 })
             });
 
@@ -246,18 +502,22 @@
             const audioSrc = `data:audio/mp3;base64,${audio_base64}`;
             const audio = new Audio(audioSrc);
             
-            statusEl.textContent = 'AI is speaking...';
+            statusEl.textContent = '🔊 AI is speaking...';
             await audio.play();
             
             audio.onended = () => {
-                statusEl.textContent = 'Ready.';
-                btnRecord.disabled = false;
+                if (isConversationActive) {
+                    statusEl.textContent = '🔄 Preparing next turn...';
+                    startRecordingTurn();
+                } else {
+                    statusEl.textContent = 'Conversation fully ended.';
+                }
             };
 
         } catch (err) {
             statusEl.textContent = 'Error: ' + (err.message || err);
             console.error(err);
-            btnRecord.disabled = false;
+            if (isConversationActive) setTimeout(startRecordingTurn, 2000); // Retry loop
         }
     }
 
@@ -292,8 +552,7 @@
             if (!res.ok) throw new Error('Analysis failed: ' + await res.text());
             const report = await res.json();
 
-            analysisBox.textContent = JSON.stringify(report, null, 2);
-            analysisBox.style.display = 'block';
+            renderReport(report);
             statusEl.textContent = 'Analysis complete.';
         } catch (err) {
             statusEl.textContent = 'Error: ' + (err.message || err);
@@ -303,7 +562,7 @@
         }
     }
 
-    btnRecord.addEventListener('click', toggleRecording);
+    btnRecord.addEventListener('click', toggleConversation);
     btnAnalyze.addEventListener('click', analyzeSession);
 
 </script>

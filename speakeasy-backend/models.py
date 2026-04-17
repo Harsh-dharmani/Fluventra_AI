@@ -25,6 +25,10 @@ class ChatRequest(BaseModel):
         default="conversation",
         description="Chat mode: 'conversation' or 'interview'",
     )
+    time_remaining_seconds: int = Field(
+        default=420,
+        description="Remaining time in seconds for the session (default 7 minutes).",
+    )
 
 
 class TranscriptMessage(BaseModel):
@@ -46,3 +50,19 @@ class AnalyzeRequest(BaseModel):
         default="conversation",
         description="Session mode: 'conversation' or 'interview'",
     )
+
+
+class AdminGenerateRequest(BaseModel):
+    """Request body for /api/admin/generate."""
+    studentName: str
+    course: str
+    durationDays: int
+
+
+class AccessValidateRequest(BaseModel):
+    """Request body for /api/access/validate."""
+    code: str
+
+class AdminStatusRequest(BaseModel):
+    """Request body for /api/admin/codes/{code}/status."""
+    isActive: bool

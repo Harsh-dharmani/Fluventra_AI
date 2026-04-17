@@ -1,38 +1,96 @@
-"""Speech-to-Text service using Google Cloud Speech-to-Text."""
+"""Speech-to-Text service using Deepgram."""
 
-from google.cloud import speech
+import os
+from typing import List, Dict, Any
+
+from deepgram import DeepgramClient, PrerecordedOptions, FileSource
 
 
-def transcribe_audio(audio_bytes: bytes) -> str:
+def transcribe_audio(audio_bytes: bytes, enable_diarization: bool = True) -> List[Dict[str, Any]]:
     """
-    Transcribe audio bytes to text using Google Cloud Speech-to-Text.
+    Transcribes audio bytes using Deepgram Nova-3 with speaker diarization support.
 
-    Args:
-        audio_bytes: Raw audio bytes in WEBM_OPUS format at 48000hz.
-
-    Returns:
-        Transcribed text string. Returns empty string if no speech detected.
+    Output format:
+    [
+        {"start": 0.0, "end": 2.5, "transcript": "Hello", "speaker": 0},
+        {"start": 2.5, "end": 5.0, "transcript": "Hi there", "speaker": 1},
+        ...
+    ]
     """
-    client = speech.SpeechClient()
+    print("Transcribing audio with Deepgram...")
+    if enable_diarization:
+        print("  -> Speaker diarization: ENABLED")
 
-    audio = speech.RecognitionAudio(content=audio_bytes)
+    # --- Validate API Key ---
+    api_key = os.getenv("DEEPGRAM_API_KEY")
+    if not api_key:
+        raise RuntimeError("DEEPGRAM_API_KEY not found. Check your .env file.")
 
-    config = speech.RecognitionConfig(
-        encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-        sample_rate_hertz=48000,
-        language_code="en-US",
-        enable_automatic_punctuation=True,
+    # --- Initialize Deepgram Client ---
+    deepgram = DeepgramClient(api_key=api_key)
+
+    # --- Transcribe ---
+    payload: FileSource = {"buffer": audio_bytes}
+    options = PrerecordedOptions(
+        model="nova-3",
+        smart_format=True,
+        punctuate=True,
+        utterances=True,
+        diarize=enable_diarization
     )
 
-    response = client.recognize(config=config, audio=audio)
+    response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
 
-    if not response.results:
-        return ""
+    segments: List[Dict[str, Any]] = []
 
-    transcript = " ".join(
-        result.alternatives[0].transcript
-        for result in response.results
-        if result.alternatives
-    )
+    # --- Process utterances with speaker IDs ---
+    if response.results and response.results.utterances:
+        for utt in response.results.utterances:
+            segment = {
+                "start": float(utt.start),
+                "end": float(utt.end),
+                "transcript": utt.transcript.strip(),
+                "speaker": int(utt.speaker) if hasattr(utt, 'speaker') else 0
+            }
+            segments.append(segment)
+        
+        speakers = set(seg["speaker"] for seg in segments)
+        print(f"  [SUCCESS] Found {len(segments)} segments with {len(speakers)} speaker(s)")
+        return segments
 
-    return transcript.strip()
+    # --- Fallback: paragraphs (no speaker info) ---
+    if (
+        response.results
+        and response.results.channels
+        and response.results.channels[0].alternatives
+    ):
+        alternative = response.results.channels[0].alternatives[0]
+
+        if alternative.paragraphs and alternative.paragraphs.paragraphs:
+            for para in alternative.paragraphs.paragraphs:
+                segments.append({
+                    "start": float(para.start),
+                    "end": float(para.end),
+                    "transcript": " ".join(
+                        sentence.text for sentence in para.sentences
+                    ).strip(),
+                    "speaker": 0  # Default speaker
+                })
+            return segments
+
+    # --- Final fallback ---
+    if (
+        response.results
+        and response.results.channels
+        and response.results.channels[0].alternatives
+    ):
+        transcript = response.results.channels[0].alternatives[0].transcript
+        if transcript:
+            return [{
+                "start": 0.0,
+                "end": 0.0,
+                "transcript": transcript.strip(),
+                "speaker": 0
+            }]
+
+    return []

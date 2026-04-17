@@ -31,9 +31,10 @@ def test_stt():
     dummy_audio = b"\x00" * 100
 
     try:
-        result = transcribe_audio(dummy_audio)
-        print(f"  Result type : {type(result).__name__}")
-        print(f"  Transcript  : '{result}'")
+        segments = transcribe_audio(dummy_audio, enable_diarization=False)
+        text = " ".join(seg["transcript"] for seg in segments)
+        print(f"  Result type : {type(segments).__name__}")
+        print(f"  Transcript  : '{text}'")
         print("  ✅ STT service initialised successfully")
     except Exception as e:
         print(f"  ❌ STT Error: {e}")
