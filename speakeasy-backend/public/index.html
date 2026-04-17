@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpeakEasy UI Test</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: #1e293b;
+            --text-color: #f8fafc;
+            --primary-color: #3b82f6;
+            --primary-hover: #2563eb;
+            --user-msg: #3b82f6;
+            --ai-msg: #334155;
+            --danger: #ef4444;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: var(--surface-color);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        h1 { margin-top: 0; color: var(--primary-color); }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        input, select, button {
+            padding: 0.75rem;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: #f8fafc;
+            font-size: 1rem;
+        }
+        button {
+            background: var(--primary-color);
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        button:hover { background: var(--primary-hover); }
+        button:disabled { background: #475569; cursor: not-allowed; }
+        .btn-record { background: var(--danger); }
+        .btn-record:hover { background: #dc2626; }
+        .btn-record.recording { animation: pulse 1.5s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        
+        .chat-box {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            background: #0f172a;
+        }
+        .msg {
+            max-width: 80%;
+            padding: 1rem;
+            border-radius: 12px;
+            line-height: 1.5;
+        }
+        .msg.user {
+            align-self: flex-end;
+            background: var(--user-msg);
+            border-bottom-right-radius: 2px;
+        }
+        .msg.ai {
+            align-self: flex-start;
+            background: var(--ai-msg);
+            border-bottom-left-radius: 2px;
+        }
+        #status { font-size: 0.9rem; color: #94a3b8; margin-bottom: 1rem; }
+        .analysis-box {
+            margin-top: 2rem;
+            padding: 1rem;
+            background: #0f172a;
+            border: 1px solid #475569;
+            border-radius: 8px;
+            display: none;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>SpeakEasy Coach</h1>
+    
+    <div class="controls">
+        <input type="password" id="apiKey" placeholder="APP_SECRET API Key" value="your_static_secret_here">
+        <select id="level">
+            <option value="beginner">Beginner</option>
+            <option value="intermediate" selected>Intermediate</option>
+            <option value="advanced">Advanced</option>
+        </select>
+        <select id="mode">
+            <option value="conversation" selected>Conversation</option>
+            <option value="interview">Interview</option>
+        </select>
+        <button id="btnRecord" class="btn-record">🎤 Start Recording</button>
+        <button id="btnAnalyze">📊 Analyze Session</button>
+    </div>
+
+    <div id="status">Ready. Select your options and hit 'Start Recording' to talk.</div>
+
+    <div class="chat-box" id="chatBox"></div>
+    
+    <div class="analysis-box" id="analysisBox"></div>
+</div>
+
+<script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let isRecording = false;
+    let conversationHistory = []; // format: { role: 'user' | 'model', parts: ['text'] }
+    let transcriptHistory = []; // format: { role: 'user' | 'assistant', content: 'text' }
+
+    const btnRecord = document.getElementById('btnRecord');
+    const btnAnalyze = document.getElementById('btnAnalyze');
+    const chatBox = document.getElementById('chatBox');
+    const statusEl = document.getElementById('status');
+    const analysisBox = document.getElementById('analysisBox');
+
+    function addMessage(role, text) {
+        const div = document.createElement('div');
+        div.className = `msg ${role}`;
+        div.textContent = text;
+        chatBox.appendChild(div);
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function toggleRecording() {
+        if (isRecording) {
+            mediaRecorder.stop();
+            isRecording = false;
+            btnRecord.textContent = '🎤 Start Recording';
+            btnRecord.classList.remove('recording');
+        } else {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                // We use webm format because STT requires WEBM_OPUS
+                mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = e => {
+                    if (e.data.size > 0) audioChunks.push(e.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    await processAudio(audioBlob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                btnRecord.textContent = '⏹ Stop Recording';
+                btnRecord.classList.add('recording');
+                statusEl.textContent = 'Listening...';
+            } catch (err) {
+                alert('Microphone access denied or not available.');
+                console.error(err);
+            }
+        }
+    }
+
+    async function processAudio(blob) {
+        statusEl.textContent = 'Transcribing audio...';
+        btnRecord.disabled = true;
+
+        try {
+            // 1. Transcribe Audio
+            const formData = new FormData();
+            formData.append('file', blob, 'audio.webm');
+
+            const sttRes = await fetch('/transcribe', { method: 'POST', body: formData });
+            if (!sttRes.ok) throw new Error('Transcription failed: ' + await sttRes.text());
+            
+            const { text } = await sttRes.json();
+            
+            if (!text) {
+                statusEl.textContent = 'No speech detected. Try again.';
+                btnRecord.disabled = false;
+                return;
+            }
+
+            addMessage('user', text);
+            // Capture the history *before* adding the current message to send it to the backend
+            const historyToSend = JSON.parse(JSON.stringify(conversationHistory));
+            
+            conversationHistory.push({ role: 'user', parts: [text] });
+            transcriptHistory.push({ role: 'user', content: text });
+
+            // 2. Chat with AI
+            statusEl.textContent = 'Getting AI response...';
+            
+            const apiKey = document.getElementById('apiKey').value;
+            const level = document.getElementById('level').value;
+            const mode = document.getElementById('mode').value;
+
+            const chatRes = await fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                },
+                body: JSON.stringify({
+                    message: text,
+                    history: historyToSend,
+                    level: level,
+                    mode: mode
+                })
+            });
+
+            if (!chatRes.ok) throw new Error('Chat failed: ' + await chatRes.text());
+            const { reply, audio_base64 } = await chatRes.json();
+
+            addMessage('ai', reply);
+            // In Gemini format, the assistant is 'model'
+            conversationHistory.push({ role: 'model', parts: [reply] });
+            transcriptHistory.push({ role: 'assistant', content: reply });
+
+            // Play the audio
+            const audioSrc = `data:audio/mp3;base64,${audio_base64}`;
+            const audio = new Audio(audioSrc);
+            
+            statusEl.textContent = 'AI is speaking...';
+            await audio.play();
+            
+            audio.onended = () => {
+                statusEl.textContent = 'Ready.';
+                btnRecord.disabled = false;
+            };
+
+        } catch (err) {
+            statusEl.textContent = 'Error: ' + (err.message || err);
+            console.error(err);
+            btnRecord.disabled = false;
+        }
+    }
+
+    async function analyzeSession() {
+        if (transcriptHistory.length === 0) {
+            alert('No conversation to analyze!');
+            return;
+        }
+
+        statusEl.textContent = 'Analyzing session...';
+        btnAnalyze.disabled = true;
+        analysisBox.style.display = 'none';
+
+        try {
+            const apiKey = document.getElementById('apiKey').value;
+            const level = document.getElementById('level').value;
+            const mode = document.getElementById('mode').value;
+
+            const res = await fetch('/analyze', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': apiKey
+                },
+                body: JSON.stringify({
+                    transcript: transcriptHistory,
+                    level: level,
+                    mode: mode
+                })
+            });
+
+            if (!res.ok) throw new Error('Analysis failed: ' + await res.text());
+            const report = await res.json();
+
+            analysisBox.textContent = JSON.stringify(report, null, 2);
+            analysisBox.style.display = 'block';
+            statusEl.textContent = 'Analysis complete.';
+        } catch (err) {
+            statusEl.textContent = 'Error: ' + (err.message || err);
+            console.error(err);
+        } finally {
+            btnAnalyze.disabled = false;
+        }
+    }
+
+    btnRecord.addEventListener('click', toggleRecording);
+    btnAnalyze.addEventListener('click', analyzeSession);
+
+</script>
+</body>
+</html>
