@@ -1,4 +1,5 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
+const API_KEY = process.env.NEXT_PUBLIC_APP_SECRET || "";
 
 async function request(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, options);
@@ -33,7 +34,10 @@ export function chatWithAI(payload: {
 }) {
   return request("/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": API_KEY,
+    },
     body: JSON.stringify(payload),
   });
 }
@@ -45,7 +49,10 @@ export function analyzeSession(payload: {
 }) {
   return request("/analyze", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Api-Key": API_KEY,
+    },
     body: JSON.stringify(payload),
   });
 }
