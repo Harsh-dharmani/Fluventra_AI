@@ -37,7 +37,7 @@ export default function DashboardPage() {
     setView("history");
     setSelectedReport(null);
     try {
-      const res = await getStudentHistory(session.code);
+      const res = await getStudentHistory(session.code, session.token);
       setHistoryData(res.data || []);
     } catch (e) {
       console.error(e);

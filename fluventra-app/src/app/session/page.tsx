@@ -123,7 +123,12 @@ export default function SessionPage() {
     if (!isActiveRef.current) return;
     setStatus("⚙️ Transcribing audio...");
     try {
-      const { text } = await transcribeAudio(blob);
+      const s = getStudentSession();
+      if (!s?.token) {
+        throw new Error("Session expired. Please login again.");
+      }
+
+      const { text } = await transcribeAudio(blob, s.token);
       if (!text) {
         setStatus("⚠️ No speech detected. Listening again...");
         if (isActiveRef.current) setTimeout(() => startRecordingTurn(), APP_CONFIG.noSpeechRetryDelayMs);
@@ -138,6 +143,7 @@ export default function SessionPage() {
       const { reply, audio_base64 } = await chatWithAI({
         message: text, history: historyToSend, level, mode,
         time_remaining_seconds: timeRemainingRef.current,
+        studentToken: s.token,
       });
 
       addMessage("ai", reply);
@@ -164,9 +170,15 @@ export default function SessionPage() {
     setStatus("🧠 AI is preparing to speak...");
     try {
       const initMessage = APP_CONFIG.aiGreetingMessage;
+      const s = getStudentSession();
+      if (!s?.token) {
+        throw new Error("Session expired. Please login again.");
+      }
+
       const { reply, audio_base64 } = await chatWithAI({
         message: initMessage, history: [], level, mode,
         time_remaining_seconds: timeRemainingRef.current,
+        studentToken: s.token,
       });
       addMessage("ai", reply);
       conversationHistoryRef.current.push({ role: "user", parts: [initMessage] });
@@ -213,7 +225,17 @@ export default function SessionPage() {
       setIsAnalyzing(true); setStatus("📊 Generating your analysis report...");
       try {
         const s = getStudentSession();
-        const report = await analyzeSession({ accessCode: s?.code || "", transcript: transcriptHistoryRef.current, level, mode });
+        if (!s?.token) {
+          throw new Error("Session expired. Please login again.");
+        }
+
+        const report = await analyzeSession({
+          accessCode: s.code,
+          transcript: transcriptHistoryRef.current,
+          level,
+          mode,
+          studentToken: s.token,
+        });
         setAnalysis(report); setStatus("✅ Session complete! Review your report below.");
       } catch (err) { setStatus(getErrorMessage(err)); }
       finally { setIsAnalyzing(false); }

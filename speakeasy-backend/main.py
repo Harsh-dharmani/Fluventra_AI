@@ -1,13 +1,22 @@
 """SpeakEasy — Voice-Based English Fluency Coach API."""
 from contextlib import asynccontextmanager
+import logging
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from models import AnalyzeRequest, ChatRequest, AdminGenerateRequest, AccessValidateRequest, AdminStatusRequest
+from models import (
+    AnalyzeRequest,
+    ChatRequest,
+    AdminGenerateRequest,
+    AccessValidateRequest,
+    AdminStatusRequest,
+    AdminLoginRequest,
+)
 from services.llm import analyze_session, get_reply
 from services.stt import transcribe_audio
 from services.tts import text_to_speech
@@ -15,9 +24,27 @@ from services.deepgram_errors import (
     DeepgramCreditsExpiredError,
     SERVER_DOWN_MESSAGE,
 )
-from services.config import APP_SECRET, ADMIN_ID, ADMIN_PASSWORD
+from services.config import (
+    APP_SECRET,
+    ADMIN_ID,
+    ADMIN_PASSWORD,
+    CORS_ALLOWED_ORIGINS,
+    ADMIN_TOKEN_TTL_SECONDS,
+    RATE_LIMIT_MAX_REQUESTS,
+    RATE_LIMIT_WINDOW_SECONDS,
+    INTERNAL_SERVER_ERROR_MESSAGE,
+)
+from services.auth import create_token, verify_token
+from services.rate_limit import SlidingWindowRateLimiter
 from services import access
 from services.history import save_session_report, get_student_history
+
+
+logger = logging.getLogger(__name__)
+rate_limiter = SlidingWindowRateLimiter(
+    max_requests=RATE_LIMIT_MAX_REQUESTS,
+    window_seconds=RATE_LIMIT_WINDOW_SECONDS,
+)
 
 # ── Lifespan ────────────────────────────────────────────────────────────────
 
@@ -26,6 +53,8 @@ from services.history import save_session_report, get_student_history
 async def lifespan(app: FastAPI):
     """Load .env on startup (only matters for local dev)."""
     load_dotenv()
+    if not APP_SECRET:
+        raise RuntimeError("APP_SECRET must be configured")
     yield
 
 
@@ -41,24 +70,49 @@ app = FastAPI(
 # CORS — allow everything for now (frontend not deployed yet)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Mount static files
 app.mount("/public", StaticFiles(directory="public"), name="public")
 
 
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "microphone=(self)"
+    return response
+
+
+@app.middleware("http")
+async def enforce_rate_limit(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
+    client_ip = request.client.host if request.client else "unknown"
+    key = f"{client_ip}:{request.url.path}"
+    if not rate_limiter.allow(key):
+        return JSONResponse(status_code=429, content={"detail": "Too many requests"})
+
+    return await call_next(request)
+
+
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def _validate_api_key(x_api_key: str | None) -> None:
-    """Raise 401 if the provided key doesn't match APP_SECRET."""
-    expected = APP_SECRET
-    if not x_api_key or x_api_key != expected:
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+def _extract_bearer_token(authorization: str | None) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    prefix = "Bearer "
+    if not authorization.startswith(prefix):
+        raise HTTPException(status_code=401, detail="Invalid Authorization header")
+    return authorization[len(prefix):].strip()
 
 def _validate_admin(x_admin_id: str | None, x_admin_password: str | None) -> None:
     """Raise 401 if admin credentials do not match environment variables."""
@@ -70,6 +124,22 @@ def _validate_admin(x_admin_id: str | None, x_admin_password: str | None) -> Non
         
     if x_admin_id != expected_id or x_admin_password != expected_pw:
         raise HTTPException(status_code=401, detail="Invalid Super Admin credentials")
+
+
+def _validate_admin_token(authorization: str | None) -> dict:
+    token = _extract_bearer_token(authorization)
+    payload = verify_token(token, expected_subject="admin")
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired admin token")
+    return payload
+
+
+def _validate_student_token(authorization: str | None) -> dict:
+    token = _extract_bearer_token(authorization)
+    payload = verify_token(token, expected_subject="student")
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired student token")
+    return payload
 
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
@@ -88,13 +158,18 @@ async def health():
 
 
 @app.post("/transcribe")
-async def transcribe(file: UploadFile = File(...)):
+async def transcribe(
+    file: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+):
     """
     Accept an audio file upload and return the transcription.
 
     Returns:
         {"text": "transcribed text..."}
     """
+    _validate_student_token(authorization)
+
     try:
         audio_bytes = await file.read()
         segments = transcribe_audio(audio_bytes)
@@ -109,13 +184,14 @@ async def transcribe(file: UploadFile = File(...)):
             },
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
+        logger.exception("Transcription failed")
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_MESSAGE)
 
 
 @app.post("/chat")
 async def chat(
     body: ChatRequest,
-    x_api_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
     """
     Send a message to the AI coach and get a reply with audio.
@@ -123,7 +199,7 @@ async def chat(
     Returns:
         {"reply": "text reply", "audio_base64": "base64 mp3"}
     """
-    _validate_api_key(x_api_key)
+    _validate_student_token(authorization)
 
     try:
         # Convert history to plain dicts for Gemini
@@ -149,13 +225,14 @@ async def chat(
             },
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+        logger.exception("Chat failed")
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_MESSAGE)
 
 
 @app.post("/analyze")
 async def analyze(
     body: AnalyzeRequest,
-    x_api_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
     """
     Analyze a full session transcript and return a detailed report.
@@ -163,7 +240,7 @@ async def analyze(
     Returns:
         Full analysis dict with fluency_score, grammar_mistakes, etc.
     """
-    _validate_api_key(x_api_key)
+    student_payload = _validate_student_token(authorization)
 
     try:
         transcript = [msg.model_dump() for msg in body.transcript]
@@ -175,7 +252,7 @@ async def analyze(
         )
 
         save_session_report(
-            access_code=body.accessCode,
+            access_code=student_payload.get("code", body.accessCode),
             level=body.level,
             mode=body.mode,
             report=report
@@ -183,17 +260,20 @@ async def analyze(
 
         return report
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+        logger.exception("Analysis failed")
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_MESSAGE)
 
 @app.get("/api/history/{accessCode}")
 async def get_history(
     accessCode: str,
-    x_api_key: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
     """
     Get all past session reports for a specific student.
     """
-    _validate_api_key(x_api_key)
+    student_payload = _validate_student_token(authorization)
+    if student_payload.get("code") != accessCode:
+        raise HTTPException(status_code=403, detail="Forbidden")
     
     try:
         history = get_student_history(accessCode)
@@ -201,16 +281,28 @@ async def get_history(
         history.reverse()
         return {"success": True, "data": history}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
+        logger.exception("Failed to fetch history")
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_MESSAGE)
+
+
+@app.post("/api/admin/login")
+async def admin_login(body: AdminLoginRequest):
+    """Authenticate admin and issue a signed token."""
+    _validate_admin(body.adminId, body.adminPassword)
+    token = create_token(
+        subject="admin",
+        payload={"admin_id": body.adminId},
+        ttl_seconds=ADMIN_TOKEN_TTL_SECONDS,
+    )
+    return {"success": True, "token": token}
 
 @app.post("/api/admin/generate")
 async def admin_generate(
     body: AdminGenerateRequest,
-    x_admin_id: str | None = Header(default=None),
-    x_admin_password: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
     """Generate a new access code."""
-    _validate_admin(x_admin_id, x_admin_password)
+    _validate_admin_token(authorization)
     try:
         code = access.create_access_code(
             student_name=body.studentName,
@@ -219,32 +311,30 @@ async def admin_generate(
         )
         return {"success": True, "code": code}
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Admin generate failed")
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_MESSAGE)
 
 @app.get("/api/admin/codes")
 async def admin_get_codes(
-    x_admin_id: str | None = Header(default=None),
-    x_admin_password: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
     """Get all generated access codes for the dashboard."""
-    _validate_admin(x_admin_id, x_admin_password)
+    _validate_admin_token(authorization)
     try:
         codes = access.get_codes()
         return {"success": True, "data": codes}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Admin get codes failed")
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_MESSAGE)
 
 @app.patch("/api/admin/codes/{code}/status")
 async def admin_update_code_status(
     code: str,
     body: AdminStatusRequest,
-    x_admin_id: str | None = Header(default=None),
-    x_admin_password: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
 ):
     """Pause or activate an access code."""
-    _validate_admin(x_admin_id, x_admin_password)
+    _validate_admin_token(authorization)
     try:
         success = access.update_code_status(code, body.isActive)
         if not success:
@@ -253,22 +343,30 @@ async def admin_update_code_status(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Admin update code status failed")
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_MESSAGE)
 
 
 @app.post("/api/access/validate")
 async def access_validate(body: AccessValidateRequest):
     """Validate an access code."""
     try:
-        session_data = access.validate_access_code(body.code)
+        sanitized_code = body.code.strip().upper()
+        session_data = access.validate_access_code(sanitized_code)
         if not session_data:
             raise HTTPException(status_code=401, detail="Invalid or expired code")
+        token = create_token(
+            subject="student",
+            payload={"code": sanitized_code},
+        )
         return {
             "success": True,
+            "token": token,
             **session_data
         }
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Access code validation failed")
+        raise HTTPException(status_code=500, detail=INTERNAL_SERVER_ERROR_MESSAGE)
 

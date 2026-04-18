@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import {
+  adminLogin,
   adminGetCodes,
   adminGenerateCode,
   adminToggleCodeStatus,
@@ -24,6 +25,7 @@ interface CodeEntry {
 
 export default function AdminPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [adminToken, setAdminToken] = useState("");
   const [adminId, setAdminId] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [loginError, setLoginError] = useState("");
@@ -40,21 +42,21 @@ export default function AdminPage() {
 
   useEffect(() => {
     const s = getAdminSession();
-    if (s) {
-      setAdminId(s.adminId);
-      setAdminPassword(s.adminPassword);
+    if (s?.adminToken) {
+      setAdminToken(s.adminToken);
       setIsLoggedIn(true);
     }
   }, []);
 
   const fetchCodes = useCallback(async () => {
+    if (!adminToken) return;
     setLoading(true);
     try {
-      const res = await adminGetCodes(adminId, adminPassword);
+      const res = await adminGetCodes(adminToken);
       setCodes(res.data || []);
     } catch { /* ignore */ }
     finally { setLoading(false); }
-  }, [adminId, adminPassword]);
+  }, [adminToken]);
 
   useEffect(() => {
     if (isLoggedIn) fetchCodes();
@@ -63,30 +65,32 @@ export default function AdminPage() {
   const handleLogin = async () => {
     setLoginLoading(true); setLoginError("");
     try {
-      await adminGetCodes(adminId, adminPassword);
-      setAdminSession({ adminId, adminPassword });
+      const data = await adminLogin({ adminId, adminPassword });
+      setAdminToken(data.token);
+      setAdminSession({ adminToken: data.token });
       setIsLoggedIn(true);
+      setAdminPassword("");
     } catch { setLoginError("Invalid credentials. Please try again."); }
     finally { setLoginLoading(false); }
   };
 
   const handleLogout = () => {
     clearAdminSession(); setIsLoggedIn(false);
-    setAdminId(""); setAdminPassword("");
+    setAdminToken(""); setAdminId(""); setAdminPassword("");
   };
 
   const handleGenerate = async () => {
     if (!studentName.trim()) return;
     setGenerating(true); setNewCode("");
     try {
-      const data = await adminGenerateCode(adminId, adminPassword, { studentName, course, durationDays });
+      const data = await adminGenerateCode(adminToken, { studentName, course, durationDays });
       setNewCode(data.code); setStudentName(""); fetchCodes();
     } catch { /* ignore */ }
     finally { setGenerating(false); }
   };
 
   const handleToggle = async (code: string, currentStatus: boolean) => {
-    try { await adminToggleCodeStatus(adminId, adminPassword, code, !currentStatus); fetchCodes(); }
+    try { await adminToggleCodeStatus(adminToken, code, !currentStatus); fetchCodes(); }
     catch { /* ignore */ }
   };
 

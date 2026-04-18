@@ -31,6 +31,7 @@ export default function PortalPage() {
         name: data.studentName,
         course: data.course,
         hours: data.remainingHours,
+        token: data.token,
       });
       router.push("/dashboard");
     } catch {

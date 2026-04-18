@@ -10,7 +10,6 @@ function getNumberEnv(name: string, defaultValue: number): number {
 
 export const APP_CONFIG = {
   apiBaseUrl: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080",
-  apiKey: process.env.NEXT_PUBLIC_APP_SECRET || "",
 
   sessionDefaultSeconds: getNumberEnv("NEXT_PUBLIC_SESSION_SECONDS", 420),
   vadSpeechThreshold: getNumberEnv("NEXT_PUBLIC_VAD_SPEECH_THRESHOLD", 15),

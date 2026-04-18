@@ -1,7 +1,6 @@
 import { APP_CONFIG } from "@/lib/config";
 
 const API_BASE = APP_CONFIG.apiBaseUrl;
-const API_KEY = APP_CONFIG.apiKey;
 
 export class ApiError extends Error {
   status: number;
@@ -49,6 +48,13 @@ async function request(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
+function withBearerToken(token: string, baseHeaders: HeadersInit = {}) {
+  return {
+    ...baseHeaders,
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 // ── Student Endpoints ──────────────────────────────────────
 export function validateCode(code: string) {
   return request("/api/access/validate", {
@@ -58,10 +64,14 @@ export function validateCode(code: string) {
   });
 }
 
-export function transcribeAudio(blob: Blob) {
+export function transcribeAudio(blob: Blob, studentToken: string) {
   const formData = new FormData();
   formData.append("file", blob, "audio.webm");
-  return request("/transcribe", { method: "POST", body: formData });
+  return request("/transcribe", {
+    method: "POST",
+    headers: withBearerToken(studentToken),
+    body: formData,
+  });
 }
 
 export function chatWithAI(payload: {
@@ -70,82 +80,90 @@ export function chatWithAI(payload: {
   level: string;
   mode: string;
   time_remaining_seconds: number;
+  studentToken: string;
 }) {
   return request("/chat", {
     method: "POST",
-    headers: {
+    headers: withBearerToken(payload.studentToken, {
       "Content-Type": "application/json",
-      "X-Api-Key": API_KEY,
-    },
-    body: JSON.stringify(payload),
+    }),
+    body: JSON.stringify({
+      message: payload.message,
+      history: payload.history,
+      level: payload.level,
+      mode: payload.mode,
+      time_remaining_seconds: payload.time_remaining_seconds,
+    }),
   });
 }
 
 export function analyzeSession(payload: {
-  accessCode: string;
   transcript: { role: string; content: string }[];
   level: string;
   mode: string;
+  accessCode?: string;
+  studentToken: string;
 }) {
   return request("/analyze", {
     method: "POST",
-    headers: {
+    headers: withBearerToken(payload.studentToken, {
       "Content-Type": "application/json",
-      "X-Api-Key": API_KEY,
-    },
-    body: JSON.stringify(payload),
+    }),
+    body: JSON.stringify({
+      accessCode: payload.accessCode || "",
+      transcript: payload.transcript,
+      level: payload.level,
+      mode: payload.mode,
+    }),
   });
 }
 
-export function getStudentHistory(accessCode: string) {
+export function getStudentHistory(accessCode: string, studentToken: string) {
   return request(`/api/history/${accessCode}`, {
     method: "GET",
-    headers: {
-      "X-Api-Key": API_KEY,
-    },
+    headers: withBearerToken(studentToken),
   });
 }
 
 // ── Admin Endpoints ────────────────────────────────────────
-export function adminGetCodes(adminId: string, adminPassword: string) {
+export function adminLogin(payload: { adminId: string; adminPassword: string }) {
+  return request("/api/admin/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function adminGetCodes(adminToken: string) {
   return request("/api/admin/codes", {
     method: "GET",
-    headers: {
-      "X-Admin-Id": adminId,
-      "X-Admin-Password": adminPassword,
-    },
+    headers: withBearerToken(adminToken),
   });
 }
 
 export function adminGenerateCode(
-  adminId: string,
-  adminPassword: string,
+  adminToken: string,
   payload: { studentName: string; course: string; durationDays: number }
 ) {
   return request("/api/admin/generate", {
     method: "POST",
-    headers: {
+    headers: withBearerToken(adminToken, {
       "Content-Type": "application/json",
-      "X-Admin-Id": adminId,
-      "X-Admin-Password": adminPassword,
-    },
+    }),
     body: JSON.stringify(payload),
   });
 }
 
 export function adminToggleCodeStatus(
-  adminId: string,
-  adminPassword: string,
+  adminToken: string,
   code: string,
   isActive: boolean
 ) {
   return request(`/api/admin/codes/${code}/status`, {
     method: "PATCH",
-    headers: {
+    headers: withBearerToken(adminToken, {
       "Content-Type": "application/json",
-      "X-Admin-Id": adminId,
-      "X-Admin-Password": adminPassword,
-    },
+    }),
     body: JSON.stringify({ isActive }),
   });
 }

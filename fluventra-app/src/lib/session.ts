@@ -3,11 +3,11 @@ export interface StudentSession {
   name: string;
   course: string;
   hours: number;
+  token: string;
 }
 
 export interface AdminSession {
-  adminId: string;
-  adminPassword: string;
+  adminToken: string;
 }
 
 const STUDENT_KEY = "fluventra_student_session";

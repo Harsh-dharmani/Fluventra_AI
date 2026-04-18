@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-@theme {
+ :root {
   --color-background: #fbfaff;
   --color-foreground: #0a0a0f;
   --color-purple: #6C5CE7;

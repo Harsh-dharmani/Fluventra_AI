@@ -64,6 +64,12 @@ class AdminGenerateRequest(BaseModel):
     durationDays: int
 
 
+class AdminLoginRequest(BaseModel):
+    """Request body for /api/admin/login."""
+    adminId: str
+    adminPassword: str
+
+
 class AccessValidateRequest(BaseModel):
     """Request body for /api/access/validate."""
     code: str
