@@ -1,11 +1,18 @@
 """LLM service using Google Gemini 1.5 Flash."""
 
 import json
-import os
 
 import vertexai
 from vertexai.generative_models import GenerativeModel, GenerationConfig, Content, Part
 
+from services.config import (
+    GEMINI_MODEL,
+    GEMINI_CHAT_TEMPERATURE,
+    GEMINI_CHAT_MAX_OUTPUT_TOKENS,
+    GEMINI_ANALYSIS_TEMPERATURE,
+    GEMINI_ANALYSIS_MAX_OUTPUT_TOKENS,
+    SESSION_DEFAULT_SECONDS,
+)
 
 
 from services.prompts import (
@@ -15,7 +22,13 @@ from services.prompts import (
 )
 
 
-def get_reply(message: str, history: list, level: str, mode: str, time_remaining_seconds: int = 420) -> str:
+def get_reply(
+    message: str,
+    history: list,
+    level: str,
+    mode: str,
+    time_remaining_seconds: int = SESSION_DEFAULT_SECONDS,
+) -> str:
     """
     Get a conversational reply from the AI coach.
 
@@ -47,7 +60,7 @@ def get_reply(message: str, history: list, level: str, mode: str, time_remaining
     ).format(level=level, time_status=time_status)
 
     model = GenerativeModel(
-        "gemini-2.5-flash-lite",
+        GEMINI_MODEL,
         system_instruction=system_prompt,
     )
 
@@ -62,8 +75,8 @@ def get_reply(message: str, history: list, level: str, mode: str, time_remaining
     response = chat.send_message(
         message,
         generation_config=GenerationConfig(
-            temperature=0.7,
-            max_output_tokens=256,
+            temperature=GEMINI_CHAT_TEMPERATURE,
+            max_output_tokens=GEMINI_CHAT_MAX_OUTPUT_TOKENS,
         ),
     )
 
@@ -94,15 +107,15 @@ def analyze_session(transcript: list, level: str, mode: str) -> dict:
     )
 
     model_with_system = GenerativeModel(
-        "gemini-2.5-flash-lite",
+        GEMINI_MODEL,
         system_instruction=system_prompt,
     )
 
     response = model_with_system.generate_content(
         f"Here is the full conversation transcript:\n\n{transcript_text}",
         generation_config=GenerationConfig(
-            temperature=0.3,
-            max_output_tokens=2048,
+            temperature=GEMINI_ANALYSIS_TEMPERATURE,
+            max_output_tokens=GEMINI_ANALYSIS_MAX_OUTPUT_TOKENS,
         ),
     )
 

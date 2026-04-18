@@ -1,6 +1,4 @@
 """SpeakEasy — Voice-Based English Fluency Coach API."""
-
-import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -17,6 +15,7 @@ from services.deepgram_errors import (
     DeepgramCreditsExpiredError,
     SERVER_DOWN_MESSAGE,
 )
+from services.config import APP_SECRET, ADMIN_ID, ADMIN_PASSWORD
 from services import access
 from services.history import save_session_report, get_student_history
 
@@ -57,14 +56,14 @@ app.mount("/public", StaticFiles(directory="public"), name="public")
 
 def _validate_api_key(x_api_key: str | None) -> None:
     """Raise 401 if the provided key doesn't match APP_SECRET."""
-    expected = os.getenv("APP_SECRET", "")
+    expected = APP_SECRET
     if not x_api_key or x_api_key != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 def _validate_admin(x_admin_id: str | None, x_admin_password: str | None) -> None:
     """Raise 401 if admin credentials do not match environment variables."""
-    expected_id = os.getenv("ADMIN_ID", "")
-    expected_pw = os.getenv("ADMIN_PASSWORD", "")
+    expected_id = ADMIN_ID
+    expected_pw = ADMIN_PASSWORD
     
     if not expected_id or not expected_pw:
         raise HTTPException(status_code=500, detail="Super Admin not configured on server")

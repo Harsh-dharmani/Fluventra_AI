@@ -3,6 +3,8 @@
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
+from services.config import SESSION_DEFAULT_SECONDS
+
 
 class HistoryMessage(BaseModel):
     """A single message in conversation history (Gemini format)."""
@@ -26,7 +28,7 @@ class ChatRequest(BaseModel):
         description="Chat mode: 'conversation' or 'interview'",
     )
     time_remaining_seconds: int = Field(
-        default=420,
+        default=SESSION_DEFAULT_SECONDS,
         description="Remaining time in seconds for the session (default 7 minutes).",
     )
 

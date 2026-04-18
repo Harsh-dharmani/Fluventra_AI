@@ -1,5 +1,7 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
-const API_KEY = process.env.NEXT_PUBLIC_APP_SECRET || "";
+import { APP_CONFIG } from "@/lib/config";
+
+const API_BASE = APP_CONFIG.apiBaseUrl;
+const API_KEY = APP_CONFIG.apiKey;
 
 export class ApiError extends Error {
   status: number;

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getStudentSession, clearStudentSession } from "@/lib/session";
 import { ApiError, chatWithAI, transcribeAudio, analyzeSession } from "@/lib/api";
+import { APP_CONFIG } from "@/lib/config";
 import Timer from "@/components/Timer";
 import ChatBox from "@/components/ChatBox";
 import AnalysisReport from "@/components/AnalysisReport";
@@ -23,7 +24,7 @@ type AnalysisData = {
   improved_sentences: { original: string; improved: string }[];
 };
 
-const SERVER_DOWN_MESSAGE = "Server is down. Please contact Fluventra team for further details.";
+const SERVER_DOWN_MESSAGE = APP_CONFIG.serverDownMessage;
 
 function isServerDownError(err: unknown): boolean {
   return err instanceof ApiError && (err.code === "DEEPGRAM_CREDITS_EXPIRED" || err.status === 503);
@@ -58,7 +59,7 @@ export default function SessionPage() {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const vadFrameRef = useRef<number | null>(null);
-  const timeRemainingRef = useRef(420);
+  const timeRemainingRef = useRef(APP_CONFIG.sessionDefaultSeconds);
 
   // Conversation history
   const conversationHistoryRef = useRef<{ role: string; parts: string[] }[]>([]);
@@ -92,9 +93,9 @@ export default function SessionPage() {
       if (!isActiveRef.current) return;
       analyserRef.current!.getByteFrequencyData(dataArray);
       const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-      if (avg > 15) { hasSpoken = true; silenceStart = null; }
+      if (avg > APP_CONFIG.vadSpeechThreshold) { hasSpoken = true; silenceStart = null; }
       else if (hasSpoken && !silenceStart) { silenceStart = Date.now(); }
-      if (silenceStart && Date.now() - silenceStart > 1800) {
+      if (silenceStart && Date.now() - silenceStart > APP_CONFIG.vadSilenceDurationMs) {
         if (recorderRef.current?.state === "recording") recorderRef.current.stop();
         return;
       }
@@ -125,7 +126,7 @@ export default function SessionPage() {
       const { text } = await transcribeAudio(blob);
       if (!text) {
         setStatus("⚠️ No speech detected. Listening again...");
-        if (isActiveRef.current) setTimeout(() => startRecordingTurn(), 500);
+        if (isActiveRef.current) setTimeout(() => startRecordingTurn(), APP_CONFIG.noSpeechRetryDelayMs);
         return;
       }
       addMessage("user", text);
@@ -153,7 +154,7 @@ export default function SessionPage() {
       const errorMessage = getErrorMessage(err);
       setStatus(errorMessage);
       if (!isServerDownError(err) && isActiveRef.current) {
-        setTimeout(() => startRecordingTurn(), 2000);
+        setTimeout(() => startRecordingTurn(), APP_CONFIG.genericRetryDelayMs);
       }
     }
   }, [addMessage, level, mode, startRecordingTurn]);
@@ -162,7 +163,7 @@ export default function SessionPage() {
     if (!isActiveRef.current) return;
     setStatus("🧠 AI is preparing to speak...");
     try {
-      const initMessage = "Hello! I am ready to start my English practice session now.";
+      const initMessage = APP_CONFIG.aiGreetingMessage;
       const { reply, audio_base64 } = await chatWithAI({
         message: initMessage, history: [], level, mode,
         time_remaining_seconds: timeRemainingRef.current,
@@ -197,7 +198,7 @@ export default function SessionPage() {
       setIsActive(true); isActiveRef.current = true;
       setTimerRunning(true); setAnalysis(null); setMessages([]);
       conversationHistoryRef.current = []; transcriptHistoryRef.current = [];
-      timeRemainingRef.current = 420;
+      timeRemainingRef.current = APP_CONFIG.sessionDefaultSeconds;
       triggerAIGreeting();
     } catch { setStatus("⚠️ Microphone access denied."); }
   };

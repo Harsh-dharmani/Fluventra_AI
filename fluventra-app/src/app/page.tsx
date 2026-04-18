@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { validateCode } from "@/lib/api";
+import { APP_CONFIG } from "@/lib/config";
 import { setStudentSession } from "@/lib/session";
 
 export default function PortalPage() {
@@ -12,11 +13,11 @@ export default function PortalPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const sanitizedCode = code.replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  const sanitizedCode = code.replace(/[^A-Z0-9]/g, "").slice(0, APP_CONFIG.accessCodeLength);
 
   const handleSubmit = async () => {
-    if (sanitizedCode.length < 8) {
-      setError("Please enter the full 8-digit access code.");
+    if (sanitizedCode.length < APP_CONFIG.accessCodeLength) {
+      setError(`Please enter the full ${APP_CONFIG.accessCodeLength}-digit access code.`);
       return;
     }
 
@@ -65,7 +66,7 @@ export default function PortalPage() {
             value={sanitizedCode}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-            maxLength={8}
+            maxLength={APP_CONFIG.accessCodeLength}
             className="sr-only"
             autoComplete="one-time-code"
             autoFocus
@@ -75,9 +76,9 @@ export default function PortalPage() {
             type="button"
             onClick={() => document.getElementById("access-code")?.focus()}
             className="access-code-grid"
-            aria-label="Enter 8-digit access code"
+            aria-label={`Enter ${APP_CONFIG.accessCodeLength}-digit access code`}
           >
-            {Array.from({ length: 8 }).map((_, idx) => (
+            {Array.from({ length: APP_CONFIG.accessCodeLength }).map((_, idx) => (
               <span key={idx} className={`access-code-slot ${idx === sanitizedCode.length ? "is-active" : ""}`}>
                 {sanitizedCode[idx] || "•"}
               </span>
@@ -93,8 +94,8 @@ export default function PortalPage() {
 
         <button
           onClick={handleSubmit}
-          disabled={loading || sanitizedCode.length < 8}
-          className={`access-continue mt-5 w-full py-3 text-[2rem] sm:text-[2rem] ${loading || sanitizedCode.length < 8 ? "opacity-60 cursor-not-allowed" : ""}`}
+          disabled={loading || sanitizedCode.length < APP_CONFIG.accessCodeLength}
+          className={`access-continue mt-5 w-full py-3 text-[2rem] sm:text-[2rem] ${loading || sanitizedCode.length < APP_CONFIG.accessCodeLength ? "opacity-60 cursor-not-allowed" : ""}`}
         >
           <span>{loading ? "Checking..." : "Continue"}</span>
           {!loading && <span aria-hidden="true">→</span>}
@@ -102,7 +103,7 @@ export default function PortalPage() {
 
         <p className="access-footer mt-3.5 text-[0.88rem] sm:text-[0.95rem]">
           Don&apos;t have access?{" "}
-          <a href="https://fluventra.com" className="font-semibold hover:underline">
+          <a href={APP_CONFIG.academyUrl} className="font-semibold hover:underline">
             Request an invite
           </a>
         </p>

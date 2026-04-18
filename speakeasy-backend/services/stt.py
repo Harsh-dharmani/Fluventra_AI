@@ -4,6 +4,7 @@ import os
 from typing import List, Dict, Any
 
 from deepgram import DeepgramClient, PrerecordedOptions, FileSource
+from services.config import DEEPGRAM_STT_MODEL
 from services.deepgram_errors import DeepgramCreditsExpiredError, is_deepgram_credit_error
 
 
@@ -33,7 +34,7 @@ def transcribe_audio(audio_bytes: bytes, enable_diarization: bool = True) -> Lis
     # --- Transcribe ---
     payload: FileSource = {"buffer": audio_bytes}
     options = PrerecordedOptions(
-        model="nova-3",
+        model=DEEPGRAM_STT_MODEL,
         smart_format=True,
         punctuate=True,
         utterances=True,

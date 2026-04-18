@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
+import { APP_CONFIG } from "@/lib/config";
 
 interface TimerProps {
   maxSeconds?: number;
@@ -10,7 +11,7 @@ interface TimerProps {
 }
 
 export default function Timer({
-  maxSeconds = 420,
+  maxSeconds = APP_CONFIG.sessionDefaultSeconds,
   onTimeUp,
   isRunning,
   onTick,
