@@ -1,4 +1,5 @@
 export interface StudentSession {
+  code: string;
   name: string;
   course: string;
   hours: number;

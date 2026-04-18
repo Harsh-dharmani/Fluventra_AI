@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { getStudentSession } from "@/lib/session";
+import { getStudentSession, clearStudentSession } from "@/lib/session";
 import { chatWithAI, transcribeAudio, analyzeSession } from "@/lib/api";
 import Timer from "@/components/Timer";
 import ChatBox from "@/components/ChatBox";
@@ -51,7 +51,8 @@ export default function SessionPage() {
 
   useEffect(() => {
     const s = getStudentSession();
-    if (!s) {
+    if (!s || !s.code) {
+      clearStudentSession();
       router.replace("/");
     }
   }, [router]);
@@ -142,7 +143,7 @@ export default function SessionPage() {
     if (!isActiveRef.current) return;
     setStatus("🧠 AI is preparing to speak...");
     try {
-      const initMessage = "[SYSTEM: The student has just connected to the voice session. Greet them warmly and ask what they would like to focus on today. Keep it very brief.]";
+      const initMessage = "Hello! I am ready to start my English practice session now.";
       const { reply, audio_base64 } = await chatWithAI({
         message: initMessage, history: [], level, mode,
         time_remaining_seconds: timeRemainingRef.current,
@@ -191,7 +192,8 @@ export default function SessionPage() {
     if (transcriptHistoryRef.current.length > 0) {
       setIsAnalyzing(true); setStatus("📊 Generating your analysis report...");
       try {
-        const report = await analyzeSession({ transcript: transcriptHistoryRef.current, level, mode });
+        const s = getStudentSession();
+        const report = await analyzeSession({ accessCode: s?.code || "", transcript: transcriptHistoryRef.current, level, mode });
         setAnalysis(report); setStatus("✅ Session complete! Review your report below.");
       } catch { setStatus("⚠️ Analysis failed. Please try again."); }
       finally { setIsAnalyzing(false); }

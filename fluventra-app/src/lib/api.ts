@@ -43,6 +43,7 @@ export function chatWithAI(payload: {
 }
 
 export function analyzeSession(payload: {
+  accessCode: string;
   transcript: { role: string; content: string }[];
   level: string;
   mode: string;
@@ -54,6 +55,15 @@ export function analyzeSession(payload: {
       "X-Api-Key": API_KEY,
     },
     body: JSON.stringify(payload),
+  });
+}
+
+export function getStudentHistory(accessCode: string) {
+  return request(`/api/history/${accessCode}`, {
+    method: "GET",
+    headers: {
+      "X-Api-Key": API_KEY,
+    },
   });
 }
 

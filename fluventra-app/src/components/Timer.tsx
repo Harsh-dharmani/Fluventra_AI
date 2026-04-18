@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 
 interface TimerProps {
   maxSeconds?: number;
@@ -16,23 +16,31 @@ export default function Timer({
   onTick,
 }: TimerProps) {
   const [remaining, setRemaining] = useState(maxSeconds);
+  
+  const savedOnTick = useRef(onTick);
+  const savedOnTimeUp = useRef(onTimeUp);
 
-  const handleTimeUp = useCallback(() => {
-    onTimeUp();
-  }, [onTimeUp]);
+  useEffect(() => {
+    savedOnTick.current = onTick;
+    savedOnTimeUp.current = onTimeUp;
+  }, [onTick, onTimeUp]);
+
+  useEffect(() => {
+    if (isRunning) {
+      setRemaining(maxSeconds);
+    }
+  }, [isRunning, maxSeconds]);
 
   useEffect(() => {
     if (!isRunning) return;
 
-    setRemaining(maxSeconds);
-
     const interval = setInterval(() => {
       setRemaining((prev) => {
         const next = prev - 1;
-        if (onTick) onTick(next);
+        if (savedOnTick.current) savedOnTick.current(next);
         if (next <= 0) {
           clearInterval(interval);
-          handleTimeUp();
+          if (savedOnTimeUp.current) savedOnTimeUp.current();
           return 0;
         }
         return next;
@@ -40,7 +48,7 @@ export default function Timer({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isRunning, maxSeconds, handleTimeUp, onTick]);
+  }, [isRunning]);
 
   const mins = Math.floor(remaining / 60)
     .toString()

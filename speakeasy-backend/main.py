@@ -14,6 +14,7 @@ from services.llm import analyze_session, get_reply
 from services.stt import transcribe_audio
 from services.tts import text_to_speech
 from services import access
+from services.history import save_session_report, get_student_history
 
 # ── Lifespan ────────────────────────────────────────────────────────────────
 
@@ -154,10 +155,34 @@ async def analyze(
             mode=body.mode,
         )
 
+        save_session_report(
+            access_code=body.accessCode,
+            level=body.level,
+            mode=body.mode,
+            report=report
+        )
+
         return report
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
+@app.get("/api/history/{accessCode}")
+async def get_history(
+    accessCode: str,
+    x_api_key: str | None = Header(default=None),
+):
+    """
+    Get all past session reports for a specific student.
+    """
+    _validate_api_key(x_api_key)
+    
+    try:
+        history = get_student_history(accessCode)
+        # Reverse to show newest first
+        history.reverse()
+        return {"success": True, "data": history}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch history: {str(e)}")
 
 @app.post("/api/admin/generate")
 async def admin_generate(
@@ -175,6 +200,8 @@ async def admin_generate(
         )
         return {"success": True, "code": code}
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/admin/codes")

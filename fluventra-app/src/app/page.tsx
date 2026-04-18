@@ -26,6 +26,7 @@ export default function PortalPage() {
     try {
       const data = await validateCode(sanitizedCode);
       setStudentSession({
+        code: sanitizedCode,
         name: data.studentName,
         course: data.course,
         hours: data.remainingHours,

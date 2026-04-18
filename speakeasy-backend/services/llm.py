@@ -36,11 +36,11 @@ def get_reply(message: str, history: list, level: str, mode: str, time_remaining
     secs = max(0, time_remaining_seconds % 60)
     
     if time_remaining_seconds <= 0:
-        time_status = "WARNING: Time is up! 0 seconds remaining. Immediately say goodbye and gracefully end the session. DO NOT ask any further questions."
+        time_status = "CRITICAL INSTRUCTION: Time is up! 0 seconds remaining. Immediately say goodbye and gracefully end the session. DO NOT ask any further questions."
     elif time_remaining_seconds <= 60:
-        time_status = f"WARNING: Only {mins}m {secs}s remaining in this session. Start wrapping up the conversation and preparing to conclude."
+        time_status = f"INSTRUCTION: Only {mins}m {secs}s remaining in this session. Start wrapping up the conversation. DO NOT mention the time remaining out loud in your text."
     else:
-        time_status = f"Time Remaining: {mins}m {secs}s. Pace the conversation normally."
+        time_status = f"SYSTEM NOTE: There are {mins}m {secs}s left. Pace the conversation normally. DO NOT say the time remaining out loud in your response."
 
     system_prompt = (
         INTERVIEW_SYSTEM_PROMPT if mode == "interview" else CONVERSATION_SYSTEM_PROMPT

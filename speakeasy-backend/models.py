@@ -39,6 +39,9 @@ class TranscriptMessage(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     """Request body for the /analyze endpoint."""
+    accessCode: str = Field(
+        ..., description="The student's unique access code"
+    )
     transcript: List[TranscriptMessage] = Field(
         ..., description="Full conversation transcript"
     )
