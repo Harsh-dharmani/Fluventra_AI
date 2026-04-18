@@ -4,6 +4,7 @@ import os
 from typing import List, Dict, Any
 
 from deepgram import DeepgramClient, PrerecordedOptions, FileSource
+from services.deepgram_errors import DeepgramCreditsExpiredError, is_deepgram_credit_error
 
 
 def transcribe_audio(audio_bytes: bytes, enable_diarization: bool = True) -> List[Dict[str, Any]]:
@@ -39,7 +40,12 @@ def transcribe_audio(audio_bytes: bytes, enable_diarization: bool = True) -> Lis
         diarize=enable_diarization
     )
 
-    response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
+    try:
+        response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
+    except Exception as exc:
+        if is_deepgram_credit_error(str(exc)):
+            raise DeepgramCreditsExpiredError("Deepgram credits expired") from exc
+        raise
 
     segments: List[Dict[str, Any]] = []
 

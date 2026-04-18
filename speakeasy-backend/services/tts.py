@@ -2,6 +2,8 @@ import os
 import base64
 import httpx
 
+from services.deepgram_errors import DeepgramCreditsExpiredError, is_deepgram_credit_error
+
 def text_to_speech(text: str) -> str:
     """
     Generates text-to-speech using Deepgram Aura and returns a base64 encoded mp3 string.
@@ -26,6 +28,8 @@ def text_to_speech(text: str) -> str:
         response = client.post(url, headers=headers, json=payload, timeout=30.0)
     
     if response.status_code != 200:
+        if is_deepgram_credit_error(response.text, response.status_code):
+            raise DeepgramCreditsExpiredError("Deepgram credits expired")
         raise RuntimeError(f"Deepgram TTS failed: {response.status_code} - {response.text}")
 
     # Deepgram returns raw audio bytes

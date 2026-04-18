@@ -13,6 +13,10 @@ from models import AnalyzeRequest, ChatRequest, AdminGenerateRequest, AccessVali
 from services.llm import analyze_session, get_reply
 from services.stt import transcribe_audio
 from services.tts import text_to_speech
+from services.deepgram_errors import (
+    DeepgramCreditsExpiredError,
+    SERVER_DOWN_MESSAGE,
+)
 from services import access
 from services.history import save_session_report, get_student_history
 
@@ -97,6 +101,14 @@ async def transcribe(file: UploadFile = File(...)):
         segments = transcribe_audio(audio_bytes)
         text = " ".join(seg["transcript"] for seg in segments)
         return {"text": text}
+    except DeepgramCreditsExpiredError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DEEPGRAM_CREDITS_EXPIRED",
+                "message": SERVER_DOWN_MESSAGE,
+            },
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
 
@@ -129,6 +141,14 @@ async def chat(
         audio_base64 = text_to_speech(reply_text)
 
         return {"reply": reply_text, "audio_base64": audio_base64}
+    except DeepgramCreditsExpiredError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DEEPGRAM_CREDITS_EXPIRED",
+                "message": SERVER_DOWN_MESSAGE,
+            },
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 

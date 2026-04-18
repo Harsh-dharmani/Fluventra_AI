@@ -1,11 +1,48 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 const API_KEY = process.env.NEXT_PUBLIC_APP_SECRET || "";
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function request(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, options);
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Request failed: ${res.status}`);
+    let message = `Request failed: ${res.status}`;
+    let code: string | undefined;
+
+    try {
+      const payload = await res.json();
+      const detail = payload?.detail;
+
+      if (typeof detail === "string") {
+        message = detail;
+      } else if (detail && typeof detail === "object") {
+        if (typeof detail.message === "string") {
+          message = detail.message;
+        }
+        if (typeof detail.code === "string") {
+          code = detail.code;
+        }
+      } else if (typeof payload?.message === "string") {
+        message = payload.message;
+      }
+    } catch {
+      const text = await res.text();
+      if (text) {
+        message = text;
+      }
+    }
+
+    throw new ApiError(message, res.status, code);
   }
   return res.json();
 }

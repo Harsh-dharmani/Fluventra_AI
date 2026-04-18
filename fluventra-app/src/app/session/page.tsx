@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { getStudentSession, clearStudentSession } from "@/lib/session";
-import { chatWithAI, transcribeAudio, analyzeSession } from "@/lib/api";
+import { ApiError, chatWithAI, transcribeAudio, analyzeSession } from "@/lib/api";
 import Timer from "@/components/Timer";
 import ChatBox from "@/components/ChatBox";
 import AnalysisReport from "@/components/AnalysisReport";
@@ -22,6 +22,22 @@ type AnalysisData = {
   suggestions: string[];
   improved_sentences: { original: string; improved: string }[];
 };
+
+const SERVER_DOWN_MESSAGE = "Server is down. Please contact Fluventra team for further details.";
+
+function isServerDownError(err: unknown): boolean {
+  return err instanceof ApiError && (err.code === "DEEPGRAM_CREDITS_EXPIRED" || err.status === 503);
+}
+
+function getErrorMessage(err: unknown): string {
+  if (isServerDownError(err)) {
+    return SERVER_DOWN_MESSAGE;
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return String(err);
+}
 
 export default function SessionPage() {
   const router = useRouter();
@@ -134,8 +150,11 @@ export default function SessionPage() {
         if (isActiveRef.current) { setStatus("🔄 Your turn to speak..."); startRecordingTurn(); }
       };
     } catch (err) {
-      setStatus("Error: " + (err instanceof Error ? err.message : String(err)));
-      if (isActiveRef.current) setTimeout(() => startRecordingTurn(), 2000);
+      const errorMessage = getErrorMessage(err);
+      setStatus(errorMessage);
+      if (!isServerDownError(err) && isActiveRef.current) {
+        setTimeout(() => startRecordingTurn(), 2000);
+      }
     }
   }, [addMessage, level, mode, startRecordingTurn]);
 
@@ -160,7 +179,7 @@ export default function SessionPage() {
         if (isActiveRef.current) { setStatus("🔄 Your turn to speak..."); startRecordingTurn(); }
       };
     } catch (err) {
-      setStatus("Error starting: " + (err instanceof Error ? err.message : String(err)));
+      setStatus(getErrorMessage(err));
     }
   }, [addMessage, level, mode, startRecordingTurn]);
 
@@ -195,7 +214,7 @@ export default function SessionPage() {
         const s = getStudentSession();
         const report = await analyzeSession({ accessCode: s?.code || "", transcript: transcriptHistoryRef.current, level, mode });
         setAnalysis(report); setStatus("✅ Session complete! Review your report below.");
-      } catch { setStatus("⚠️ Analysis failed. Please try again."); }
+      } catch (err) { setStatus(getErrorMessage(err)); }
       finally { setIsAnalyzing(false); }
     } else { setStatus("Session ended. No conversation to analyze."); }
   }, [isActive, level, mode]);
