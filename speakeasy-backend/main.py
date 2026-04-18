@@ -1,8 +1,11 @@
 """SpeakEasy — Voice-Based English Fluency Coach API."""
 from contextlib import asynccontextmanager
 import logging
-
 from dotenv import load_dotenv
+
+# Load .env before any service imports
+load_dotenv()
+
 from fastapi import FastAPI, File, Header, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -51,8 +54,7 @@ rate_limiter = SlidingWindowRateLimiter(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Load .env on startup (only matters for local dev)."""
-    load_dotenv()
+    """Lifecycle events for the FastAPI application."""
     if not APP_SECRET:
         raise RuntimeError("APP_SECRET must be configured")
     yield
